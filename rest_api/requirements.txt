@@ -1,0 +1,7 @@
+uvicorn[standard]==0.21.1
+fastapi==0.95.0
+scylla-driver==3.25.11
+requests
+pycryptodome==3.17
+fastapi-cprofile
+web3

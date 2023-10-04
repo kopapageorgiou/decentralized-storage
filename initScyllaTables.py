@@ -29,13 +29,23 @@ query = '''
 session.execute(query=query)
 
 query = '''
-    CREATE TABLE measurements (
+    CREATE TABLE IF NOT EXISTS measurements (
     measurement_id int PRIMARY KEY,
-    measurement_value float,
-    measurement_time text,
-    measurement_location text,
+    measurement_value int,
+    measurement_time timestamp,
+    measurement_location tuple<float, float>,
     device_id int,
+    leg_number int,
     ) WITH comment='Measurements information'
+''' #! STEP 2
+session.execute(query=query)
+query = '''
+    CREATE TABLE IF NOT EXISTS coefficients (
+    device_id int,
+    leg_number float,
+    coefficients list<text>,
+    PRIMARY KEY (device_id, leg_number)
+    ) WITH comment='Polynomial coefficients of commitments'
 ''' #! STEP 2
 session.execute(query=query)
 session.shutdown()

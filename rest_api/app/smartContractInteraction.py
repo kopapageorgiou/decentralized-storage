@@ -11,7 +11,7 @@ class SmartContract(object):
                 info_json = json.load(f)
 
             abi = info_json["abi"]
-            self.address = self.web3.to_checksum_address("0xf1Ef3ed22ca79a31F50DE03582F9c23c6B9a491D")
+            self.address = self.web3.to_checksum_address("0x2109C235c6482B6De93bFB72FB10D2788688838b")
 
             self.contract = self.web3.eth.contract(address=self.address, abi=abi)
 

@@ -48,6 +48,8 @@ services:
       DB_HOST: scylla
       ORBIT_HOST: orbitdb
       GANACHE_HOST: truffle
+      ABE_HOST: abeapi
+      #REDIS_HOST: redis-cache
       #VAULT_HOST: vault
     ports:
       - "8000:8000"
@@ -64,6 +66,27 @@ services:
       - custom-b
     ports:
       - "8545:8545"
+
+  # redis-cache:
+  #   image: redis:alpine
+  #   hostname: redis-cache
+  #   container_name: redis-cache
+  #   restart: on-failure
+  #   ports:
+  #     - '6379:6379'
+  #   command: redis-server
+  #   volumes:
+  #     - ./cache:/data
+  #   networks:
+  #     - custom-b
+
+  abeapi:
+    container_name: abeapi
+    image: babbadeckl/abe-api:v1.4
+    networks:
+      - custom-b
+    ports:
+      - "8090:12345"
 
 networks:
   custom-b:

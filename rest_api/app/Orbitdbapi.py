@@ -1,6 +1,8 @@
 import requests
 import sys
 import logging
+import aiohttp
+import logging
 class OrbitdbAPI():
     def __init__(self, orbithost: str, port: int=3000) -> None:
         self.BASE_URL = f"http://{orbithost}:{str(port)}"
@@ -9,7 +11,7 @@ class OrbitdbAPI():
     def load(self, dbname: str) -> dict:
         response = requests.post(self.BASE_URL+'/loadDB', json={"name": dbname}).json()
         if response['info'] == 'Query fetched successfully' and dbname == 'shared.measurements':
-            logging.debug("here")
+            #logging.debug("here")
             return _measurementsdb(response['data'], self.BASE_URL)
         elif response['info'] == 'Query fetched successfully':
             return _dataBase(response['data'], self.BASE_URL)
@@ -53,4 +55,14 @@ class _measurementsdb(_dataBase):
         # attr = {}
         # for key in data.keys():
         #     attr[key] = data[key]
-        return requests.post(self.BASE_URL+'/insertMeasurements', json=data).json()
+        response = requests.post(self.BASE_URL+'/insertMeasurements', json=data)
+        return response.json(), response.elapsed.total_seconds()
+    
+    async def insertMeasurementsAsync(self, data: dict):
+        assert 'measurement_id' in data.keys(), "Data must contain an attribute named measurement_id"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(self.BASE_URL+'/insertMeasurements', json=data) as response:
+                res = await response.json()
+                logging.error("SAVED SUCCESFULLY IN ORBIT")
+                logging.error("Response: " + str(res))
+                return res

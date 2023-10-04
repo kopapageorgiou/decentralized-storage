@@ -5,86 +5,68 @@ from cassandra.cluster import Cluster
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 from Crypto.Util.Padding import pad
+from datetime import datetime
 import base64
 import requests
 import logging
 parent_folder_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_folder_path)
 from Orbitdbapi import OrbitdbAPI
-
+from utils.abe_api import ABEAPI
+from aiocache import SimpleMemoryCache
+import asyncio
 
 cluster = Cluster([os.environ['DB_HOST']])
+orbitdb = OrbitdbAPI(orbithost=os.environ['ORBIT_HOST'], port=3000)
+db = orbitdb.load(dbname='shared.measurements')
+cache = SimpleMemoryCache()
 router = APIRouter()
 logging.basicConfig(level=logging.DEBUG)
+
 class Measurement(BaseModel):
     order_id: str #Must be known from the caller
     device_id: int
+    leg_number: int
     measurement_id: int
-    measurement_value: float
-    measurement_timestamp: str
-    measurement_location: str
+    measurement_value: int
+    measurement_timestamp: datetime
+    measurement_location: tuple[float, float]
 
 flags = {}
 
 @router.post('/insertMeasurement')
-def insert_client(measurement: Measurement, request: Request):
+async def insert_measurement(measurement: Measurement, request: Request):
     try:
-        logging.debug("0")
-        #vault: Vault = request.app.state.vault
-        logging.debug("1") 
         session = cluster.connect('mkeyspace')
-        logging.debug("2")
-        query = '''INSERT INTO measurements
-        (measurement_id, measurement_location, measurement_time, measurement_value, device_id)
-        VALUES (%s, %s, %s, %s, %s)'''
-        logging.debug("3")
-        values = (measurement.measurement_id,
+        prep = session.prepare('''INSERT INTO measurements
+        (measurement_id, measurement_location, measurement_time, measurement_value, device_id, leg_number)
+        VALUES (?, ?, ?, ?, ?, ?)''')
+        values = [measurement.measurement_id,
                     measurement.measurement_location,
                     measurement.measurement_timestamp,
                     measurement.measurement_value,
-                    measurement.device_id, )
-        logging.debug("4")
-        session.execute(query=query, parameters=values)
-        logging.debug("5")
-        #query = '''SELECT * FROM devices WHERE sensor_id = %s'''
-        logging.debug("6")
-        #gateway_id = session.execute(query, (measurement.sensor_id,)).one().gateway_id
+                    measurement.device_id,
+                    measurement.leg_number]
+
+        session.execute(prep, values)
+        session.shutdown()
         device_id = measurement.device_id
-        logging.debug("7")
-        #checkStop(vehicle_id, int(measurement.current_stop_id))
-        #logging.debug(request.app.state.gate_keys[gateway_id])
-        if device_id not in request.app.state.gate_keys: 
-            logging.debug("8")
-            request.app.state.gate_keys[device_id] = base64.b64encode(get_random_bytes(32)).decode('utf-8')
-            logging.debug("9") 
+        
+        # if device_id not in request.app.state.gate_keys: 
+        #     request.app.state.gate_keys[device_id] = base64.b64encode(get_random_bytes(32)).decode('utf-8')
+        #     request.app.state.encrypted_symmetric_keys[device_id] = abe_api.cp_encrypt(request.app.state.gate_stops[device_id],
+        #                                                                                     request.app.state.gate_keys[device_id])
+        #logging.error(request.app.state.gate_keys)
         key = request.app.state.gate_keys[device_id]
-        logging.debug("10")
-        # if key == '' or key == None:
-        #     logging.debug("9")
-        #     request.app.state.gate_keys[gateway_id] = base64.b64encode(get_random_bytes(32)).decode('utf-8')
-        #     logging.debug("10")
-        #     key = request.app.state.gate_keys[gateway_id]
-        #     logging.debug(f"11 with key: {key}")
-        #logging.debug(key)
+
         enc_measurement_value = encrypt(key, str(measurement.measurement_value))
-        logging.debug("12")
-        enc_measurement_time = encrypt(key, measurement.measurement_timestamp)
-        logging.debug("13")
-        enc_measurement_location = encrypt(key, measurement.measurement_location)
-        logging.debug("14")
-        try:
-            #!Must be modified
-            #enc_abe_key = vault.encrypt_abe(key, policy_attrs= request.app.state.gate_stops[gateway_id])
-            enc_abe_key = key
-            logging.debug("15")
-        except Exception as e:
-            logging.debug(e)
-            enc_abe_key = key
-        orbitdb = OrbitdbAPI(orbithost=os.environ['ORBIT_HOST'], port=3000)
-        logging.debug("16")
-        db = orbitdb.load(dbname='shared.measurements')
-        logging.debug("17")
-        res = db.insertMeasurements({
+        enc_measurement_time = encrypt(key, str(measurement.measurement_timestamp))
+        enc_measurement_location = encrypt(key, f"{str(measurement.measurement_location[0])}, {str(measurement.measurement_location[1])}")
+        #logging.error(f"Users: {request.app.state.gate_stops[device_id]}")
+        #enc_abe_key = abe_api.cp_encrypt(request.app.state.gate_stops[device_id], key)
+        enc_abe_key = request.app.state.encrypted_symmetric_keys[device_id]
+        #logging.error(f"Encrypted key: {enc_abe_key}")
+        data = {
             "order_id": measurement.order_id,
             "device_id": measurement.device_id,
             "measurement_id": measurement.measurement_id,
@@ -92,37 +74,22 @@ def insert_client(measurement: Measurement, request: Request):
             "enc_measurement_time": enc_measurement_time,
             "enc_measurement_location": enc_measurement_location,
             "abe_enc_key": enc_abe_key
-            
-        })
-        logging.debug(res)
-        return {"info": "Measurement has been imported successfully", "code": 1, "debug": res}
+        }
+        asyncio.create_task(db.insertMeasurementsAsync(data))
+        return {"info": "Measurement has been imported successfully", "code": 1}
     except Exception as e:
-        logging.debug(e)
+        logging.debug(e) 
         raise HTTPException(status_code=500, detail=e)
 
-# ! DEPRICATED! Probably will get removed
-def checkStop(vehicle_id, stop_id):
-    logging.debug("Checking for stop")
-    if vehicle_id in flags:
-        logging.debug("vehicle exist with key")
-        if flags[vehicle_id] == 1 and stop_id == 0:
-            logging.debug("switching keys")
-            flags[vehicle_id] = 0
-            keys[vehicle_id] = generateSymmetricKey()
-
-    else:
-        logging.debug("vehicle register 1st time")
-        flags[vehicle_id] = 0
-        keys[vehicle_id] = generateSymmetricKey()
-# ! DEPRICATED! Probably will get removed    
-def generateSymmetricKey():
-    logging.debug("Generating key")
-    return base64.b64encode(get_random_bytes(32)).decode('utf-8')
 
 def encrypt(key, value):
     key = key.encode('utf-8')
     key = base64.b64decode(key)
     cipher = AES.new(key, AES.MODE_CBC)
-    logging.debug("Encrypting data")
+    #logging.debug("Encrypting data")
     return base64.b64encode(cipher.encrypt(pad(bytes(value, 'utf-8'), AES.block_size))).decode('utf-8')
-                
+
+# async def send_data_to_orbit(data: dict):
+#     async with aiohttp.ClientSession() as session:
+#         async with session.post(f"{os.environ['ORBIT_HOST']}:3000/insertMeasurements", json=data) as response:
+#             return await response.json()

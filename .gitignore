@@ -290,3 +290,9 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+cache/dump.rdb
+docker_stats_*
+response_times_*
+res_times_*
+analyze.py
+test_simulation.py
